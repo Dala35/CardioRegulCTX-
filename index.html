@@ -69,7 +69,8 @@
   <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full transform transition duration-300 scale-95">
     <h3 id="modalTitle" class="text-xl font-bold mb-3 text-cardio-blue">Sucesso!</h3>
     <p id="modalMessage" class="mb-4"></p>
-    <button onclick="closeModal()" class="w-full bg-cardio-blue text-white py-2 rounded-lg hover:bg-blue-700 transition">Fechar</button>
+    <!-- O botão 'Fechar' é adicionado/substituído pela lógica de Sugestão IA -->
+    <button id="modalCloseButton" onclick="closeModal()" class="w-full bg-cardio-blue text-white py-2 rounded-lg hover:bg-blue-700 transition">Fechar</button>
   </div>
 </div>
 
@@ -79,7 +80,7 @@
   <div id="auth-status" class="text-sm font-light">Aguardando autenticação...</div>
 </header>
 
-<!-- Barra de Controlo de Paciente (Nova Localização - VISÍVEL) -->
+<!-- Barra de Controlo de Paciente (VISÍVEL) -->
 <div class="p-4 bg-white shadow-md border-b sticky top-16 z-10 flex flex-col md:flex-row gap-3 items-center">
     <label for="patientId" class="text-sm font-medium text-gray-700 whitespace-nowrap">ID do Paciente:</label>
     <input type="text" id="patientId" placeholder="Ex: P-1984" value="P-1984" class="w-full md:w-48 border border-gray-300 p-2 rounded-lg focus:border-cardio-blue focus:ring-1 focus:ring-cardio-blue font-mono">
@@ -97,7 +98,7 @@
 
 <main class="flex-grow flex flex-col md:flex-row p-4 md:space-x-4">
 
-  <!-- Desktop Sidebar Navigation (Funções que estavam no menu) -->
+  <!-- Desktop Sidebar Navigation -->
   <nav id="desktopMenu" class="w-full md:w-64 bg-white p-4 rounded-xl shadow-lg flex-shrink-0 self-start mb-4 md:mb-0">
     <h3 class="text-lg font-semibold mb-3 border-b pb-2 text-cardio-blue">Módulos CTX</h3>
     <ul id="desktopMenuList">
@@ -153,6 +154,11 @@
     <section>
       <h2 class="text-xl font-semibold mb-3 border-b pb-1">Controles Terapêuticos e Exportação</h2>
       <div class="flex flex-wrap gap-3 p-4 bg-white rounded-xl shadow-lg">
+        <!-- NOVO BOTÃO DE SUGESTÃO IA -->
+        <button id="suggestPulseButton" onclick="suggestAITherapeuticPulse()" class="flex-1 min-w-[200px] bg-indigo-600 text-white px-4 py-3 rounded-xl font-semibold hover:bg-indigo-700 transition transform hover:scale-[1.02]">
+            Sugestão de Pulso IA
+        </button>
+        <!-- BOTÕES EXISTENTES -->
         <button onclick="pulsoGlobal()" class="flex-1 min-w-[200px] bg-green-600 text-white px-4 py-3 rounded-xl font-semibold hover:bg-green-700 transition transform hover:scale-[1.02]">
           Pulso Terapêutico Global
         </button>
@@ -165,7 +171,7 @@
       </div>
     </section>
 
-    <!-- Sliders de Camada (Função que estava no menu - Inicialmente Escondida) -->
+    <!-- Sliders de Camada (Inicialmente Escondida) -->
     <section id="layers-section" class="hidden">
       <h2 class="text-xl font-semibold mb-3 border-b pb-1">Controle Manual das Camadas de Risco <span class="text-sm text-gray-500">(Escala 0-100)</span></h2>
       <div id="layers" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
@@ -187,7 +193,7 @@
       </div>
     </section>
 
-    <!-- Painel Especialista (Função que estava no menu - Inicialmente Escondida) -->
+    <!-- Painel Especialista (Inicialmente Escondida) -->
     <section id="especialista" class="hidden">
       <h2 class="text-xl font-semibold mb-3 border-b pb-1 text-cardio-blue">Painel do Especialista (Controle & Configuração)</h2>
       <div class="bg-white p-6 rounded-xl shadow-lg">
@@ -201,7 +207,7 @@
       </div>
     </section>
 
-    <!-- Painel Paciente (Função que estava no menu - Inicialmente Escondida) -->
+    <!-- Painel Paciente (Inicialmente Escondida) -->
     <section id="paciente" class="hidden">
       <h2 class="text-xl font-semibold mb-3 border-b pb-1 text-cardio-blue">Painel do Paciente (Resumo Comunicativo)</h2>
       <div class="bg-white p-6 rounded-xl shadow-lg">
@@ -511,7 +517,8 @@ function calculateTimeToBreach(currentValue, velocity, acceleration) {
 function showModal(title, message, colorClass = 'text-cardio-blue'){
     document.getElementById('modalTitle').textContent = title;
     document.getElementById('modalTitle').className = `text-xl font-bold mb-3 ${colorClass}`;
-    document.getElementById('modalMessage').textContent = message;
+    document.getElementById('modalMessage').innerHTML = message;
+    document.getElementById('modalCloseButton').classList.remove('hidden'); // Certifica-se de que o botão padrão está visível
     document.getElementById('feedbackModal').classList.remove('hidden');
     document.getElementById('feedbackModal').classList.add('flex');
 }
@@ -519,6 +526,7 @@ function showModal(title, message, colorClass = 'text-cardio-blue'){
 function closeModal(){
     document.getElementById('feedbackModal').classList.remove('flex');
     document.getElementById('feedbackModal').classList.add('hidden');
+    document.getElementById('modalCloseButton').classList.remove('hidden'); // Reset do botão padrão
 }
 
 function createLayerSlider(key, label, color){
@@ -626,24 +634,17 @@ function pulsoIndividual(key){
     showModal('Simulação Inativa', 'Por favor, inicie ou carregue uma análise do paciente primeiro.', 'text-yellow-600');
     return;
   }
-  layers[key].value = Math.max(0, layers[key].value - PULSE_EFFECT);
+  
+  const intensity = PULSE_EFFECT;
+  
+  // Aplica o pulso
+  layers[key].value = Math.max(0, layers[key].value - intensity);
 
   // Simulação de Efeito Colateral Imediato (CROSSTALK REVERSO)
-  Object.keys(CROSSTALK_MATRIX).forEach(sourceKey => {
-      if (CROSSTALK_MATRIX[sourceKey][key]) {
-          const effect = PULSE_EFFECT * 0.1; 
-          layers[sourceKey].value = Math.min(100, layers[sourceKey].value + effect);
-      }
-  });
+  // Reutiliza a função de execução da sugestão IA para aplicar o pulso (menos DRY, mais seguro)
+  executeAISuggestion(key, intensity); 
 
-  document.getElementById(`${key}-slider`).value = layers[key].value;
-  document.getElementById(`${key}-value`).textContent = layers[key].value.toFixed(1);
-  updateChart();
-  updateResumoPaciente();
-  
-  // Salva o estado após a intervenção
-  iaSimulationLoop(true); 
-  showModal('Pulso Aplicado', `Pulso Terapêutico aplicado em ${LABELS[key]}. Efeitos colaterais biológicos simulados e estado salvo.`, 'text-blue-600');
+  showModal('Pulso Aplicado', `Pulso Terapêutico padrão aplicado (${intensity} pts) em ${LABELS[key]}. Efeitos colaterais biológicos simulados e estado salvo.`, 'text-blue-600');
 }
 
 function pulsoGlobal(){
@@ -664,10 +665,28 @@ function pulsoGlobal(){
   showModal('Pulso Global Aplicado', 'Pulso Terapêutico Global aplicado. O sistema tenta resetar o risco e estado salvo.', 'text-green-600');
 }
 
+// NOVO: Função para introduzir o caos externo (Perturbações)
+function applyExternalChaos() {
+    if (Math.random() < 0.20) { // 20% de chance de um evento caótico por ciclo
+        const keys = Object.keys(layers);
+        const randomKey = keys[Math.floor(Math.random() * keys.length)];
+        const chaosMagnitude = 3 + Math.random() * 5; // Aumento de 3 a 8 pontos de risco
+        
+        layers[randomKey].value = Math.min(100, layers[randomKey].value + chaosMagnitude);
+        
+        // Alerta suave de perturbação no console, mas o alerta de UI fica para a IA central
+        console.warn(`[CHAOS] Camada '${LABELS[randomKey]}' perturbada em ${chaosMagnitude.toFixed(1)}.`);
+        return true; 
+    }
+    return false;
+}
+
 // Loop principal de simulação e IA
 function iaSimulationLoop(isManualSave = false){
-  // 1. A simulação só corre automaticamente se não for um save manual
+  // 1. Introduzir Caos Externo (Se não for um save manual)
   if (!isManualSave) {
+    applyExternalChaos();
+    
     // Calcular efeitos de crosstalk antes de atualizar o risco de cada camada
     const crosstalkEffects = {};
     Object.keys(layers).forEach(sourceKey => {
@@ -805,6 +824,100 @@ function iaCentral(){
   return predictiveMetrics;
 }
 
+
+// NOVO: Lógica de Sugestão de Pulso IA
+function suggestAITherapeuticPulse() {
+    if (!simulationInterval) {
+        showModal('Simulação Inativa', 'Por favor, inicie ou carregue uma análise do paciente primeiro para receber sugestões de IA.', 'text-yellow-600');
+        return;
+    }
+
+    let highestRiskLayer = null;
+    let maxInstabilityScore = -Infinity;
+    let recommendation = { key: null, intensity: 0, reason: "" };
+
+    // 1. Avaliar a Instabilidade (Combinando Risco, Velocidade e Aceleração)
+    Object.keys(layers).forEach(key => {
+        const hist = layers[key].history.map(x => parseFloat(x));
+        const velocity = calculateVelocity(hist, 3);
+        const acceleration = calculateAcceleration(hist);
+        const currentValue = layers[key].value;
+
+        // O Score de Instabilidade prioriza alta Velocidade e Aceleração positiva para encontrar
+        // a camada que mais rapidamente causará problemas.
+        const instabilityScore = (currentValue / 100) * 1 + velocity * 10 + acceleration * 50;
+
+        if (instabilityScore > maxInstabilityScore) {
+            maxInstabilityScore = instabilityScore;
+            highestRiskLayer = { key, currentValue, velocity, acceleration };
+        }
+    });
+
+    if (maxInstabilityScore < 10) {
+        showModal('Sugestão IA', 'Sistema está estável. Nenhuma intervenção de pulso urgente é recomendada neste momento.', 'text-green-600');
+        return;
+    }
+    
+    // 2. Calcular a intensidade necessária
+    const targetVelocity = 0.5; // Queremos reduzir a velocidade para perto de zero
+    let requiredPulse = 0;
+    
+    if (highestRiskLayer.velocity > targetVelocity) {
+        // O Pulso necessário deve ser proporcional ao valor atual e à velocidade
+        requiredPulse = (highestRiskLayer.currentValue * 0.25) + (highestRiskLayer.velocity * 10); 
+        
+        requiredPulse = Math.min(requiredPulse, 50); // Limite máximo para evitar over-treatment
+        requiredPulse = Math.max(requiredPulse, 10); // Limite mínimo para ter efeito
+
+        recommendation.key = highestRiskLayer.key;
+        recommendation.intensity = Math.round(requiredPulse / 5) * 5; // Arredonda para o 5 mais próximo
+        recommendation.reason = `O risco em **${LABELS[highestRiskLayer.key]}** (${highestRiskLayer.currentValue.toFixed(1)}) tem uma Velocidade de **+${highestRiskLayer.velocity.toFixed(2)}** e Aceleração de **${highestRiskLayer.acceleration.toFixed(2)}**. É a camada mais instável e o nosso foco de intervenção.`;
+    } else {
+        showModal('Sugestão IA', 'O sistema detetou instabilidade, mas a velocidade não é alta o suficiente para um Pulso Imediato. Recomenda-se monitorização rigorosa.', 'text-yellow-600');
+        return;
+    }
+
+
+    // 3. Exibir a sugestão no modal
+    showModal(
+        '✨ Sugestão de Intervenção IA ✨',
+        `${recommendation.reason}<br><br>**Recomendação:** Aplicar um Pulso Terapêutico de <span class="font-bold text-lg text-indigo-700">${recommendation.intensity} pontos</span> na camada **${LABELS[recommendation.key]}**.`,
+        'text-indigo-600'
+    );
+    
+    // Substituir o botão de fechar pela ação de execução
+    document.getElementById('modalCloseButton').classList.add('hidden');
+    document.getElementById('modalMessage').innerHTML += `<div class="mt-4 flex flex-col space-y-2">
+        <button onclick="executeAISuggestion('${recommendation.key}', ${recommendation.intensity})" class="bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition font-bold">EXECUTAR PULSO SUGERIDO (${recommendation.intensity} pts)</button>
+        <button onclick="closeModal()" class="bg-gray-300 text-gray-800 py-2 rounded-lg hover:bg-gray-400 transition">Ignorar Sugestão / Fechar</button>
+    </div>`;
+}
+
+// NOVO: Função para executar o pulso sugerido pela IA
+function executeAISuggestion(key, intensity) {
+    if (!simulationInterval) return;
+
+    // Aplica o pulso na intensidade sugerida
+    layers[key].value = Math.max(0, layers[key].value - intensity);
+
+    // Simulação de Efeito Colateral Imediato (CROSSTALK REVERSO)
+    Object.keys(CROSSTALK_MATRIX).forEach(sourceKey => {
+        if (CROSSTALK_MATRIX[sourceKey][key]) {
+            const effect = intensity * 0.05; // 5% de efeito colateral
+            layers[sourceKey].value = Math.min(100, layers[sourceKey].value + effect);
+        }
+    });
+
+    document.getElementById(`${key}-slider`).value = layers[key].value;
+    document.getElementById(`${key}-value`).textContent = layers[key].value.toFixed(1);
+    updateChart();
+    updateResumoPaciente();
+    iaSimulationLoop(true); // Salva o estado
+    closeModal();
+    showModal('Pulso Aplicado', `Pulso de ${intensity} pontos aplicado em ${LABELS[key]} conforme sugestão da IA. Estado salvo.`, 'text-green-600');
+}
+
+
 // --- Chart.js ---
 
 function initChart(){
@@ -848,7 +961,7 @@ function updateChart(){
   historicoChart.update();
 }
 
-// --- Funções Auxiliares ---
+// --- Funções Auxiliares de UI ---
 
 function togglePanel(panelId){
   const panels = ['especialista','paciente'];
