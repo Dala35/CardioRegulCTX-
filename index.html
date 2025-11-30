@@ -1,0 +1,1013 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CardioRegulCTX™ - Dashboard Complexo IA</title>
+<!-- Font Inter for modern look -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- Load jspdf UMD for PDF export -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- Firebase SDKs -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+  import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+  import { getFirestore, doc, getDoc, setDoc, collection, query, orderBy, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+  
+  // Expor as funções Firebase globalmente para uso no script principal
+  window.firebase = {
+    initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
+    getFirestore, doc, getDoc, setDoc, collection, query, orderBy, onSnapshot, updateDoc,
+  };
+  
+  // Inicialização no evento DOMContentLoaded
+  document.addEventListener('DOMContentLoaded', initFirebase);
+</script>
+
+<style>
+  /* Custom configuration for Tailwind colors and font */
+  body {
+    font-family: 'Inter', sans-serif;
+  }
+  .layer-card {
+    transition: transform 0.2s, box-shadow 0.2s;
+    border-left: 5px solid;
+  }
+  .layer-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  }
+  /* Estilo para inputs desativados em modo de monitoramento */
+  .data-input:disabled {
+    background-color: #f3f4f6;
+    cursor: not-allowed;
+    color: #6b7280;
+  }
+</style>
+<script>
+    tailwind.config = {
+        theme: {
+            extend: {
+                colors: {
+                    'cardio-blue': '#1e40af', /* Dark Blue */
+                    'cardio-light': '#eff6ff', /* Light Blue */
+                    'risk-high': '#dc2626',
+                    'risk-medium': '#fbbf24',
+                    'risk-low': '#10b981',
+                }
+            }
+        }
+    }
+</script>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
+
+<!-- Modal de Feedback (Hidden by default) -->
+<div id="feedbackModal" class="fixed inset-0 bg-gray-600 bg-opacity-75 hidden items-center justify-center z-50">
+  <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full transform transition duration-300 scale-95">
+    <h3 id="modalTitle" class="text-xl font-bold mb-3 text-cardio-blue">Sucesso!</h3>
+    <p id="modalMessage" class="mb-4"></p>
+    <button onclick="closeModal()" class="w-full bg-cardio-blue text-white py-2 rounded-lg hover:bg-blue-700 transition">Fechar</button>
+  </div>
+</div>
+
+<!-- Header -->
+<header class="bg-cardio-blue text-white p-4 shadow-lg flex justify-between items-center z-10 sticky top-0">
+  <h1 class="text-2xl font-bold tracking-wide">CardioRegulCTX™ <span class="text-blue-300 text-sm">IA Dashboard (Avançado)</span></h1>
+  <div id="auth-status" class="text-sm font-light">Aguardando autenticação...</div>
+</header>
+
+<!-- Barra de Controlo de Paciente (Nova Localização - VISÍVEL) -->
+<div class="p-4 bg-white shadow-md border-b sticky top-16 z-10 flex flex-col md:flex-row gap-3 items-center">
+    <label for="patientId" class="text-sm font-medium text-gray-700 whitespace-nowrap">ID do Paciente:</label>
+    <input type="text" id="patientId" placeholder="Ex: P-1984" value="P-1984" class="w-full md:w-48 border border-gray-300 p-2 rounded-lg focus:border-cardio-blue focus:ring-1 focus:ring-cardio-blue font-mono">
+    
+    <button id="loadButton" onclick="loadPatientHistory()" class="w-full md:w-auto bg-green-600 text-white px-4 py-2 rounded-xl font-semibold hover:bg-green-700 transition">
+        Carregar Histórico
+    </button>
+    <button id="startButton" onclick="processPatientData()" class="w-full md:w-auto bg-cardio-blue text-white px-4 py-2 rounded-xl font-semibold hover:bg-blue-700 transition">
+        Iniciar Nova Análise IA
+    </button>
+    <button id="stopButton" onclick="stopSimulation()" class="w-full md:w-auto bg-red-500 text-white px-4 py-2 rounded-xl font-semibold hover:bg-red-600 transition hidden">
+        Parar Monitoramento
+    </button>
+</div>
+
+<main class="flex-grow flex flex-col md:flex-row p-4 md:space-x-4">
+
+  <!-- Desktop Sidebar Navigation (Funções que estavam no menu) -->
+  <nav id="desktopMenu" class="w-full md:w-64 bg-white p-4 rounded-xl shadow-lg flex-shrink-0 self-start mb-4 md:mb-0">
+    <h3 class="text-lg font-semibold mb-3 border-b pb-2 text-cardio-blue">Módulos CTX</h3>
+    <ul id="desktopMenuList">
+       <li class="py-1"><button onclick="togglePanel('especialista')" class="w-full text-left p-2 rounded-lg hover:bg-blue-700 hover:text-white transition">Painel do Especialista</button></li>
+       <li class="py-1"><button onclick="togglePanel('paciente')" class="w-full text-left p-2 rounded-lg hover:bg-blue-700 hover:text-white transition">Painel do Paciente</button></li>
+       <li class="py-1"><button onclick="toggleLayerSliders()" class="w-full text-left p-2 rounded-lg hover:bg-blue-700 hover:text-white transition">Sliders de Risco Manual</button></li>
+    </ul>
+    <p class="text-xs mt-4 pt-4 border-t text-gray-500">O Histórico do Paciente é identificado pelo ID acima.</p>
+  </nav>
+
+  <!-- Main Content Area -->
+  <div class="flex-grow mt-4 md:mt-0 space-y-6">
+    
+    <!-- Input de Dados do Paciente (Métricas Clínicas de Base) -->
+    <section id="input-dados">
+      <h2 class="text-xl font-semibold mb-3 border-b pb-1 text-cardio-blue">Dados Clínicos de Base <span id="monitoramentoStatus" class="text-sm text-yellow-600 font-normal ml-2">(Modo de Entrada de Dados)</span></h2>
+      <div class="bg-white p-6 rounded-xl shadow-lg space-y-4">
+        
+        <p class="text-sm text-gray-600 font-semibold pt-2 border-t mt-4">Marcadores Clínicos (Métricas do Mundo Real):</p>
+        
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <!-- 1. Proliferação Celular (Fator de Crescimento) -->
+          <div>
+            <label for="inputProliferacao" class="block text-sm font-medium text-gray-700">Fator de Crescimento (FGE) (0-20)</label>
+            <input type="number" id="inputProliferacao" value="8.5" min="0" max="20" step="0.1" class="data-input w-full border border-gray-300 p-2 rounded-lg">
+          </div>
+          <!-- 2. Instabilidade Genética (Comprimento Telómero) -->
+          <div>
+            <label for="inputInstabilidade" class="block text-sm font-medium text-gray-700">Comprimento Telómero (%) (0-100)</label>
+            <input type="number" id="inputInstabilidade" value="65" min="0" max="100" step="1" class="data-input w-full border border-gray-300 p-2 rounded-lg">
+          </div>
+          <!-- 3. Processo Inflamatório (PCR) -->
+          <div>
+            <label for="inputInflamacao" class="block text-sm font-medium text-gray-700">Proteína C-Reativa (PCR) (mg/L) (0-10)</label>
+            <input type="number" id="inputInflamacao" value="5.2" min="0" max="10" step="0.1" class="data-input w-full border border-gray-300 p-2 rounded-lg">
+          </div>
+          <!-- 4. Integração Elétrica (VRC) -->
+          <div>
+            <label for="inputIntegracao" class="block text-sm font-medium text-gray-700">Var. Ritmo Cardíaco (VRC) (ms) (0-150)</label>
+            <input type="number" id="inputIntegracao" value="55" min="0" max="150" step="1" class="data-input w-full border border-gray-300 p-2 rounded-lg">
+          </div>
+          <!-- 5. Imunogenicidade (Rejeição) -->
+          <div>
+            <label for="inputImunogenicidade" class="block text-sm font-medium text-gray-700">Marcador de Rejeição (%) (0-100)</label>
+            <input type="number" id="inputImunogenicidade" value="15" min="0" max="100" step="1" class="data-input w-full border border-gray-300 p-2 rounded-lg">
+          </div>
+        </div>
+
+        <p class="text-sm text-gray-500 mt-4 italic">Estes valores definem o ponto de partida do risco BioAICTX. Clique em "Iniciar Nova Análise IA" para começar a simulação preditiva.</p>
+      </div>
+    </section>
+    
+    <section>
+      <h2 class="text-xl font-semibold mb-3 border-b pb-1">Controles Terapêuticos e Exportação</h2>
+      <div class="flex flex-wrap gap-3 p-4 bg-white rounded-xl shadow-lg">
+        <button onclick="pulsoGlobal()" class="flex-1 min-w-[200px] bg-green-600 text-white px-4 py-3 rounded-xl font-semibold hover:bg-green-700 transition transform hover:scale-[1.02]">
+          Pulso Terapêutico Global
+        </button>
+        <button onclick="exportCSV()" class="flex-1 min-w-[200px] bg-purple-600 text-white px-4 py-3 rounded-xl font-semibold hover:bg-purple-700 transition transform hover:scale-[1.02]">
+          Exportar Histórico CSV
+        </button>
+        <button onclick="exportPDF()" class="flex-1 min-w-[200px] bg-yellow-600 text-white px-4 py-3 rounded-xl font-semibold hover:bg-yellow-700 transition transform hover:scale-[1.02]">
+          Exportar PDF Relatório
+        </button>
+      </div>
+    </section>
+
+    <!-- Sliders de Camada (Função que estava no menu - Inicialmente Escondida) -->
+    <section id="layers-section" class="hidden">
+      <h2 class="text-xl font-semibold mb-3 border-b pb-1">Controle Manual das Camadas de Risco <span class="text-sm text-gray-500">(Escala 0-100)</span></h2>
+      <div id="layers" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+        <!-- Layer Sliders go here -->
+      </div>
+    </section>
+
+    <section>
+      <h2 class="text-xl font-semibold mb-3 border-b pb-1">Gráfico Histórico e Projeção BioAICTX</h2>
+      <div class="bg-white p-4 md:p-6 rounded-xl shadow-lg">
+        <canvas id="historicoChart" class="w-full h-80"></canvas>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="text-xl font-semibold mb-3 border-b pb-1">Alertas Preditivos e Sugestões IA (Lógica Avançada)</h2>
+      <div id="alertas" class="p-4 bg-yellow-100 rounded-xl border border-yellow-300 shadow-inner min-h-[100px]">
+        <p class="text-yellow-700 italic">O sistema de IA BioAICTX está monitorando ativamente as tendências das camadas.</p>
+      </div>
+    </section>
+
+    <!-- Painel Especialista (Função que estava no menu - Inicialmente Escondida) -->
+    <section id="especialista" class="hidden">
+      <h2 class="text-xl font-semibold mb-3 border-b pb-1 text-cardio-blue">Painel do Especialista (Controle & Configuração)</h2>
+      <div class="bg-white p-6 rounded-xl shadow-lg">
+        <h3 class="font-bold mt-2 mb-3">Adicionar Parâmetros de Monitoramento Extras</h3>
+        <div class="flex items-center space-x-2">
+          <input type="text" id="novoParametro" placeholder="Ex: Nível de Citocina X" class="flex-grow border border-gray-300 p-2 rounded-lg focus:border-cardio-blue focus:ring-1 focus:ring-cardio-blue">
+          <button onclick="adicionarParametro()" class="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700 transition">Adicionar</button>
+        </div>
+        <ul id="parametrosList" class="mt-4 space-y-2"></ul>
+        <p class="text-sm text-gray-500 mt-4 border-t pt-4">Esta secção é para ajustes finos e expansão do modelo de monitoramento.</p>
+      </div>
+    </section>
+
+    <!-- Painel Paciente (Função que estava no menu - Inicialmente Escondida) -->
+    <section id="paciente" class="hidden">
+      <h2 class="text-xl font-semibold mb-3 border-b pb-1 text-cardio-blue">Painel do Paciente (Resumo Comunicativo)</h2>
+      <div class="bg-white p-6 rounded-xl shadow-lg">
+        <p class="text-gray-600 mb-4">Visão simplificada para comunicação com o paciente sobre o estado das camadas de risco BioAICTX.</p>
+        <div id="resumoPaciente" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+// --- VARIÁVEIS DE CONFIGURAÇÃO PARA AMBIENTE EXTERNO (GitHub/Hosting) ---
+// 1. Defina o ID fixo da aplicação (necessário para as Regras de Segurança do Firestore)
+const LOCAL_APP_ID = 'CardioRegulCTX-Prod-V1'; 
+
+// 2. SUBSTITUA ESTE OBJETO PELA SUA PRÓPRIA CONFIGURAÇÃO FIREBASE
+const myFirebaseConfig = { 
+    apiKey: "SUA_API_KEY_AQUI", // Exemplo: "AIzaSyD_abc123DEF_ghi456JKL"
+    authDomain: "seu-projeto.firebaseapp.com", 
+    projectId: "seu-project-id", 
+    storageBucket: "seu-projeto.appspot.com",
+    messagingSenderId: "SEU_SENDER_ID",
+    appId: "SEU_APP_ID",
+    // ... adicione todas as outras chaves do seu projeto
+};
+
+
+// --- Configurações e Mapeamento de Rótulos ---
+const LABELS = {
+  proliferacao: 'Proliferação Celular',
+  instabilidade: 'Instabilidade Genética',
+  inflamacao: 'Processo Inflamatório',
+  integracao: 'Integração Elétrica',
+  imunogenicidade: 'Imunogenicidade Tecidual',
+};
+
+// Mapeamento de chaves para cores de borda (HSL para consistência com o Chart)
+const KEY_COLORS = {
+  proliferacao: 'hsl(0, 70%, 50%)', // Vermelho
+  instabilidade: 'hsl(60, 70%, 50%)', // Amarelo
+  inflamacao: 'hsl(120, 70%, 50%)', // Verde
+  integracao: 'hsl(180, 70%, 50%)', // Ciano
+  imunogenicidade: 'hsl(240, 70%, 50%)', // Azul
+};
+
+// Matriz de Crosstalk Biológico: Como uma camada afeta a outra (Ex: Inflamação aumenta Proliferação)
+const CROSSTALK_MATRIX = {
+  inflamacao: { proliferacao: 0.05, instabilidade: 0.02 },
+  instabilidade: { proliferacao: 0.03 },
+  proliferacao: { imunogenicidade: 0.01 },
+  integracao: {},
+  imunogenicidade: { inflamacao: 0.04 },
+};
+
+// Mapeamento de Marcadores Clínicos para Níveis de Risco (0-100)
+// Define como os valores clínicos são convertidos em Risco BioAICTX
+const MAPPING_CONFIG = {
+    // FGE (0-20). Risco Alto para valores altos (15-20).
+    proliferacao: (fge) => Math.min(100, Math.max(0, (fge - 5) * (100 / 15))), 
+
+    // Comprimento Telómero (%) (0-100). Risco Alto para valores BAIXOS (30-0).
+    // Inverte a escala: (100 - valor_clínico) para que valor baixo = risco alto.
+    instabilidade: (telomero) => Math.min(100, Math.max(0, 100 - telomero)), 
+
+    // PCR (0-10). Risco Alto para valores altos (5+).
+    inflamacao: (pcr) => Math.min(100, Math.max(0, (pcr - 1) * (100 / 9))),
+
+    // VRC (0-150ms). Risco Alto para valores BAIXOS (50ms).
+    // Inverte a escala: 100 - (VRC / 150) * 100
+    integracao: (vrc) => Math.min(100, Math.max(0, 100 - (vrc / 150) * 100)),
+
+    // Marcador Rejeição (%) (0-100). Risco Alto para valores altos (20+).
+    imunogenicidade: (rejeicao) => Math.min(100, Math.max(0, rejeicao * (100 / 30))),
+};
+
+
+// Variáveis de Estado
+const layers = {
+  proliferacao: { value: 50, history: [] },
+  instabilidade: { value: 40, history: [] },
+  inflamacao: { value: 30, history: [] },
+  integracao: { value: 20, history: [] },
+  imunogenicidade: { value: 10, history: [] },
+};
+
+const DECAY_RATE = 0.99;
+const PULSE_EFFECT = 15;
+const HISTORY_LENGTH = 20;
+const CRITICAL_THRESHOLD = 80;
+let parametrosExtras = [];
+let historicoChart;
+let simulationInterval = null; 
+let db = null;
+let auth = null;
+let userId = null;
+let currentPatientId = null;
+
+// --- Funções Firebase ---
+
+async function initFirebase() {
+    if (typeof firebase === 'undefined') {
+      console.error("Firebase SDK não carregado corretamente.");
+      return;
+    }
+    
+    // Configurações Globais (REMOVIDAS as variáveis Canvas e token customizado)
+    
+    // Usamos myFirebaseConfig diretamente, que deve ser preenchida
+    if (!myFirebaseConfig.apiKey || myFirebaseConfig.apiKey === "SUA_API_KEY_AQUI") {
+        document.getElementById('auth-status').textContent = "Erro: Por favor, preencha 'myFirebaseConfig'.";
+        return;
+    }
+    
+    try {
+        // Inicializa com a sua configuração
+        const app = firebase.initializeApp(myFirebaseConfig);
+        db = firebase.getFirestore(app);
+        auth = firebase.getAuth(app);
+
+        // --- AUTENTICAÇÃO (Login Anónimo para ambiente externo) ---
+        await firebase.signInAnonymously(auth);
+        
+        // Define o userId com o UID do usuário anónimo
+        userId = auth.currentUser?.uid || crypto.randomUUID();
+        document.getElementById('auth-status').textContent = `Usuário: ${userId.substring(0, 8)}... (Logado Anónimo)`;
+
+    } catch (error) {
+        console.error("Erro na inicialização ou autenticação do Firebase:", error);
+        document.getElementById('auth-status').textContent = "Erro de Autenticação.";
+    }
+}
+
+// Retorna a referência da Coleção para o paciente
+function getPatientCollectionRef(patientId) {
+    if (!db || !userId) {
+        console.error("Firebase ou UserId não inicializado.");
+        return null;
+    }
+    // Usamos o caminho de dados PRIVADOS com o LOCAL_APP_ID
+    return firebase.collection(
+        db, 
+        `artifacts/${LOCAL_APP_ID}/users/${userId}/patient_history/${patientId}/analyses`
+    );
+}
+
+// Salva a análise atual no Firestore
+async function saveAnalysis(patientId, analysisData) {
+    const colRef = getPatientCollectionRef(patientId);
+    if (!colRef) return;
+    
+    try {
+        // Criar um documento com carimbo de data/hora como ID
+        const docId = new Date().toISOString().replace(/\./g, '_');
+        await firebase.setDoc(firebase.doc(colRef, docId), {
+            timestamp: new Date().getTime(), // Usar timestamp numérico para ordenação
+            ...analysisData
+        });
+        console.log(`Análise salva para o paciente ${patientId}`);
+    } catch (error) {
+        console.error("Erro ao salvar análise no Firestore:", error);
+    }
+}
+
+// Carrega o histórico do paciente do Firestore
+async function loadPatientHistory() {
+    const patientIdInput = document.getElementById('patientId');
+    const patientId = patientIdInput.value.trim();
+    if (!patientId || !db || !userId) {
+        showModal('Erro', 'Por favor, insira um ID de Paciente válido e aguarde a autenticação do sistema.', 'text-red-600');
+        return;
+    }
+    
+    stopSimulation(); // Limpa o intervalo de simulação anterior
+    currentPatientId = patientId;
+
+    try {
+        showModal('Aguarde', `Carregando histórico para ${patientId}...`, 'text-blue-600');
+        
+        const colRef = getPatientCollectionRef(patientId);
+        
+        // Listener em tempo real (onSnapshot) para monitorização
+        firebase.onSnapshot(firebase.query(colRef, firebase.orderBy('timestamp', 'desc')), (snapshot) => {
+            
+            // Reconstruir o histórico completo a partir do snapshot
+            const newHistory = {};
+            Object.keys(layers).forEach(key => newHistory[key] = []);
+
+            snapshot.docs.reverse().forEach(doc => { 
+                const data = doc.data();
+                Object.keys(layers).forEach(key => {
+                    if (data.layer_risks && data.layer_risks[key]) {
+                        newHistory[key].push(parseFloat(data.layer_risks[key]).toFixed(1));
+                    }
+                });
+            });
+
+            if (snapshot.empty) {
+                // Se não houver dados, mantém os valores atuais
+                Object.keys(layers).forEach(key => layers[key].history = [layers[key].value.toFixed(1)]);
+                updateChart();
+                closeModal();
+                setMonitoringMode(false, patientId);
+                return;
+            }
+            
+            // Aplica o último valor de risco como o valor atual
+            Object.keys(layers).forEach(key => {
+                layers[key].history = newHistory[key].slice(-HISTORY_LENGTH);
+                const lastValue = layers[key].history.length > 0 ? parseFloat(layers[key].history.slice(-1)[0]) : 50;
+                layers[key].value = lastValue;
+                document.getElementById(`${key}-slider`).value = layers[key].value;
+                document.getElementById(`${key}-value`).textContent = layers[key].value.toFixed(1);
+            });
+
+            updateChart();
+            updateResumoPaciente();
+            
+            // Inicia o loop de simulação
+            if (!simulationInterval) {
+                simulationInterval = setInterval(iaSimulationLoop, 3000);
+            }
+            
+            setMonitoringMode(true, patientId);
+            closeModal();
+
+        }, (error) => {
+            console.error("Erro ao configurar listener do Firestore:", error);
+            showModal('Erro Firestore', 'Não foi possível carregar o histórico do paciente.', 'text-red-600');
+            setMonitoringMode(false, patientId);
+        });
+
+    } catch (error) {
+        console.error("Erro ao carregar histórico:", error);
+        showModal('Erro', 'Ocorreu um erro ao tentar carregar o paciente.', 'text-red-600');
+    }
+}
+
+// Controla o estado da UI entre entrada de dados e monitoramento
+function setMonitoringMode(isMonitoring, patientId) {
+    const dataInputs = document.querySelectorAll('.data-input');
+    const statusText = document.getElementById('monitoramentoStatus');
+    const startButton = document.getElementById('startButton');
+    const loadButton = document.getElementById('loadButton');
+    const stopButton = document.getElementById('stopButton');
+    
+    dataInputs.forEach(input => input.disabled = isMonitoring);
+    
+    if (isMonitoring) {
+        statusText.textContent = `(Monitoramento Ativo: ${patientId})`;
+        statusText.classList.remove('text-yellow-600');
+        statusText.classList.add('text-green-600');
+        startButton.classList.add('hidden');
+        loadButton.classList.add('hidden');
+        stopButton.classList.remove('hidden');
+    } else {
+        statusText.textContent = '(Modo de Entrada de Dados)';
+        statusText.classList.remove('text-green-600');
+        statusText.classList.add('text-yellow-600');
+        startButton.classList.remove('hidden');
+        loadButton.classList.remove('hidden');
+        stopButton.classList.add('hidden');
+        document.getElementById('patientId').value = patientId; // Mantém o ID no campo
+    }
+}
+
+function stopSimulation() {
+    if (simulationInterval) {
+        clearInterval(simulationInterval);
+        simulationInterval = null;
+    }
+    setMonitoringMode(false, currentPatientId);
+    showModal('Monitoramento Parado', `A simulação de IA para o Paciente ${currentPatientId} foi interrompida. Valores clínicos reativados para edição.`, 'text-red-600');
+}
+
+// --- Funções Auxiliares de Lógica Preditiva (Mantidas) ---
+
+function calculateVelocity(history, period = 3) {
+  if (history.length < period + 1) return 0;
+  const currentAvg = history.slice(-period).reduce((a, b) => a + parseFloat(b), 0) / period;
+  const previousAvg = history.slice(-(period * 2), -period).reduce((a, b) => a + parseFloat(b), 0) / period;
+  return (currentAvg - previousAvg) / period;
+}
+
+function calculateAcceleration(history) {
+  if (history.length < 5) return 0;
+  const velocity_t0 = calculateVelocity(history, 2);
+  const velocity_t1 = calculateVelocity(history.slice(0, -2), 2);
+  return velocity_t0 - velocity_t1;
+}
+
+function calculateTimeToBreach(currentValue, velocity, acceleration) {
+    const target = CRITICAL_THRESHOLD;
+    const distance = target - currentValue;
+
+    if (distance <= 0) return 0; 
+    if (velocity <= 0 && acceleration <= 0) return Infinity; 
+
+    if (velocity > 0) {
+        return distance / velocity;
+    }
+    return Infinity;
+}
+
+
+// --- Funções de UI e Feedback (Adaptadas) ---
+
+function showModal(title, message, colorClass = 'text-cardio-blue'){
+    document.getElementById('modalTitle').textContent = title;
+    document.getElementById('modalTitle').className = `text-xl font-bold mb-3 ${colorClass}`;
+    document.getElementById('modalMessage').textContent = message;
+    document.getElementById('feedbackModal').classList.remove('hidden');
+    document.getElementById('feedbackModal').classList.add('flex');
+}
+
+function closeModal(){
+    document.getElementById('feedbackModal').classList.remove('flex');
+    document.getElementById('feedbackModal').classList.add('hidden');
+}
+
+function createLayerSlider(key, label, color){
+  const container = document.createElement('div');
+  container.className = "bg-white p-4 rounded-xl shadow-md layer-card";
+  container.style.borderColor = color;
+  container.innerHTML = `
+    <h3 class="font-bold text-lg mb-2 text-gray-700">${label}</h3>
+    <label class="block mb-2 font-semibold">Nível de Risco: <span id="${key}-value" class="text-xl font-extrabold text-cardio-blue">${layers[key].value.toFixed(1)}</span></label>
+    <input type="range" min="0" max="100" value="${layers[key].value}" id="${key}-slider" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer range-lg">
+    <button onclick="pulsoIndividual('${key}')" class="mt-3 w-full bg-cardio-blue text-white px-3 py-2 rounded-lg font-semibold hover:bg-blue-700 transition transform hover:scale-[1.01]">
+      Pulso Terapêutico
+    </button>
+  `;
+  document.getElementById('layers').appendChild(container);
+
+  const slider = container.querySelector(`#${key}-slider`);
+  const valueSpan = container.querySelector(`#${key}-value`);
+
+  slider.addEventListener('input', () => {
+    layers[key].value = parseFloat(slider.value);
+    valueSpan.textContent = layers[key].value.toFixed(1);
+    layers[key].history = [layers[key].value.toFixed(1)];
+    updateChart();
+    updateResumoPaciente();
+    // Salva manualmente o estado alterado pelo slider
+    iaSimulationLoop(true);
+  });
+}
+
+function toggleLayerSliders(){
+    const section = document.getElementById('layers-section');
+    
+    section.classList.toggle('hidden');
+}
+
+// --- Lógica de Input de Dados Clínicos ---
+
+function processPatientData() {
+    const patientId = document.getElementById('patientId').value.trim();
+    if (!patientId || !db || !userId) {
+        showModal('Erro de Inicialização', 'Por favor, insira um ID de Paciente e garanta que o sistema esteja autenticado.', 'text-red-600');
+        return;
+    }
+    
+    // Para iniciar uma nova análise, paramos qualquer simulação anterior
+    stopSimulation();
+
+    const clinicalData = {
+        fge: parseFloat(document.getElementById('inputProliferacao').value),
+        telomero: parseFloat(document.getElementById('inputInstabilidade').value),
+        pcr: parseFloat(document.getElementById('inputInflamacao').value),
+        vrc: parseFloat(document.getElementById('inputIntegracao').value),
+        rejeicao: parseFloat(document.getElementById('inputImunogenicidade').value),
+    };
+
+    let allMapped = true;
+    Object.keys(layers).forEach(key => {
+        let value;
+        
+        // Mapeamento usando o valor clínico correto
+        if (key === 'proliferacao') value = MAPPING_CONFIG[key](clinicalData.fge);
+        else if (key === 'instabilidade') value = MAPPING_CONFIG[key](clinicalData.telomero);
+        else if (key === 'inflamacao') value = MAPPING_CONFIG[key](clinicalData.pcr);
+        else if (key === 'integracao') value = MAPPING_CONFIG[key](clinicalData.vrc);
+        else if (key === 'imunogenicidade') value = MAPPING_CONFIG[key](clinicalData.rejeicao);
+
+        if (!isNaN(value)) {
+            layers[key].value = value;
+            layers[key].history = [value.toFixed(1)]; // Novo ponto de partida
+        } else {
+             allMapped = false;
+        }
+    });
+    
+    if (!allMapped) {
+         showModal('Erro de Mapeamento', 'Verifique se todos os valores clínicos foram inseridos corretamente.', 'text-red-600');
+         return;
+    }
+
+    currentPatientId = patientId;
+    
+    // 3. Atualiza a UI e Inicia/Reinicia a Simulação
+    Object.keys(layers).forEach(key => {
+        document.getElementById(`${key}-slider`).value = layers[key].value;
+        document.getElementById(`${key}-value`).textContent = layers[key].value.toFixed(1);
+    });
+    
+    updateChart();
+    updateResumoPaciente();
+    
+    // Inicia o loop de simulação (IA)
+    simulationInterval = setInterval(iaSimulationLoop, 3000);
+    
+    setMonitoringMode(true, patientId);
+    
+    showModal('Análise IA Iniciada', `Dados do Paciente ${patientId} processados. A IA BioAICTX iniciou a monitorização preditiva em tempo real. O histórico será gravado no Firestore.`, 'text-green-600');
+}
+
+
+// --- Lógica de Simulação e Terapêutica ---
+
+function pulsoIndividual(key){
+  if (!simulationInterval) {
+    showModal('Simulação Inativa', 'Por favor, inicie ou carregue uma análise do paciente primeiro.', 'text-yellow-600');
+    return;
+  }
+  layers[key].value = Math.max(0, layers[key].value - PULSE_EFFECT);
+
+  // Simulação de Efeito Colateral Imediato (CROSSTALK REVERSO)
+  Object.keys(CROSSTALK_MATRIX).forEach(sourceKey => {
+      if (CROSSTALK_MATRIX[sourceKey][key]) {
+          const effect = PULSE_EFFECT * 0.1; 
+          layers[sourceKey].value = Math.min(100, layers[sourceKey].value + effect);
+      }
+  });
+
+  document.getElementById(`${key}-slider`).value = layers[key].value;
+  document.getElementById(`${key}-value`).textContent = layers[key].value.toFixed(1);
+  updateChart();
+  updateResumoPaciente();
+  
+  // Salva o estado após a intervenção
+  iaSimulationLoop(true); 
+  showModal('Pulso Aplicado', `Pulso Terapêutico aplicado em ${LABELS[key]}. Efeitos colaterais biológicos simulados e estado salvo.`, 'text-blue-600');
+}
+
+function pulsoGlobal(){
+  if (!simulationInterval) {
+    showModal('Simulação Inativa', 'Por favor, inicie ou carregue uma análise do paciente primeiro.', 'text-yellow-600');
+    return;
+  }
+  Object.keys(layers).forEach(key=>{
+    layers[key].value = Math.max(0, layers[key].value - PULSE_EFFECT);
+    document.getElementById(`${key}-slider`).value = layers[key].value;
+    document.getElementById(`${key}-value`).textContent = layers[key].value.toFixed(1);
+  });
+  updateChart();
+  updateResumoPaciente();
+  
+  // Salva o estado após a intervenção
+  iaSimulationLoop(true); 
+  showModal('Pulso Global Aplicado', 'Pulso Terapêutico Global aplicado. O sistema tenta resetar o risco e estado salvo.', 'text-green-600');
+}
+
+// Loop principal de simulação e IA
+function iaSimulationLoop(isManualSave = false){
+  // 1. A simulação só corre automaticamente se não for um save manual
+  if (!isManualSave) {
+    // Calcular efeitos de crosstalk antes de atualizar o risco de cada camada
+    const crosstalkEffects = {};
+    Object.keys(layers).forEach(sourceKey => {
+        const sourceValue = layers[sourceKey].value;
+        if (sourceValue > 50) { 
+            Object.keys(CROSSTALK_MATRIX[sourceKey]).forEach(targetKey => {
+                const influence = CROSSTALK_MATRIX[sourceKey][targetKey];
+                const effect = (sourceValue / 100) * influence;
+                crosstalkEffects[targetKey] = (crosstalkEffects[targetKey] || 0) + effect * 5; 
+            });
+        }
+    });
+
+    Object.keys(layers).forEach(key=>{
+      let currentValue = layers[key].value;
+
+      currentValue *= DECAY_RATE;
+      currentValue += (currentValue / 100) * (Math.random() * 2);
+      currentValue += crosstalkEffects[key] || 0;
+
+      layers[key].value = Math.min(100, Math.max(0, currentValue));
+      
+      document.getElementById(`${key}-slider`).value = layers[key].value;
+      document.getElementById(`${key}-value`).textContent = layers[key].value.toFixed(1);
+
+      layers[key].history.push(layers[key].value.toFixed(1));
+      if(layers[key].history.length > HISTORY_LENGTH) layers[key].history.shift();
+    });
+  }
+
+  // 2. Lógica Central de IA
+  const analysisResult = iaCentral();
+  
+  // 3. Salvar no Firestore se houver um paciente ativo
+  if (currentPatientId && db && userId) {
+      const layerRisks = {};
+      Object.keys(layers).forEach(key => {
+          layerRisks[key] = layers[key].value.toFixed(1);
+      });
+
+      const analysisData = {
+          layer_risks: layerRisks,
+          predictive_metrics: analysisResult,
+          action_taken: isManualSave ? 'Manual_Therapeutic_Pulse' : 'IA_Monitoring',
+          patient_id: currentPatientId
+      };
+      saveAnalysis(currentPatientId, analysisData);
+  }
+
+  updateChart();
+  updateResumoPaciente();
+}
+
+// Lógica Central de IA BioAICTX
+function iaCentral(){
+  const alertDiv = document.getElementById('alertas');
+  alertDiv.innerHTML = '';
+  let activeAlerts = false;
+  const predictiveMetrics = {}; // Coletar métricas para salvar no Firestore
+
+  Object.keys(layers).forEach(key => {
+    const l = layers[key];
+    const hist = l.history.map(x => parseFloat(x));
+    const current = l.value;
+
+    const velocity = calculateVelocity(hist, 3);
+    const acceleration = calculateAcceleration(hist);
+    const timeToBreach = calculateTimeToBreach(current, velocity, acceleration);
+
+    const isAccelerating = acceleration > 0.1;
+    const isCritical = current > CRITICAL_THRESHOLD - 5; // 75+
+    const isImminent = timeToBreach < 5 && timeToBreach > 0; // Menos de 5 ciclos (15 segundos)
+
+    predictiveMetrics[key] = {
+        value: current.toFixed(1),
+        velocity: velocity.toFixed(2),
+        acceleration: acceleration.toFixed(2),
+        ttb: timeToBreach === Infinity ? 'Infinito' : timeToBreach.toFixed(1)
+    };
+
+    // --- ALERTA 1: Risco Crítico Imediato (Nível Alto) ---
+    if(isCritical){
+      const msg = document.createElement('div');
+      msg.className="p-3 mb-2 bg-risk-high text-white rounded-lg font-semibold flex items-center shadow-md";
+      msg.innerHTML=`<span class="text-2xl mr-3">🚨</span> **Risco Crítico:** ${LABELS[key]} está em ${current.toFixed(1)}. Intervenção urgente recomendada.`;
+      alertDiv.appendChild(msg);
+      activeAlerts = true;
+    }
+
+    // --- ALERTA 2: Projeção de Violação Iminente (Time-to-Breach) ---
+    if(isImminent && !isCritical){
+      const msg = document.createElement('div');
+      msg.className="p-3 mb-2 bg-red-500 text-white rounded-lg font-semibold flex items-center shadow-md";
+      msg.innerHTML=`<span class="text-2xl mr-3">⚠️</span> **VIOLAÇÃO IMINENTE:** ${LABELS[key]} deve atingir o limite crítico (${CRITICAL_THRESHOLD}) em ${timeToBreach.toFixed(1)} ciclos. Velocidade: ${velocity.toFixed(2)}.`;
+      alertDiv.appendChild(msg);
+      activeAlerts = true;
+
+      // Sugestão e Ação IA (Auto-modulação)
+      const actionMsg = document.createElement('div');
+      actionMsg.className="p-3 mb-2 bg-green-200 border border-green-400 text-green-800 rounded-lg flex items-center italic";
+      actionMsg.innerHTML = `<span class="text-xl mr-3">🤖</span> **AÇÃO PREDITIVA:** IA BioAICTX aplica Pulso Preventivo de 50% em ${LABELS[key]}.`;
+      alertDiv.appendChild(actionMsg);
+
+      // Aplica metade do pulso para simular auto-regulação
+      layers[key].value = Math.max(0, layers[key].value - PULSE_EFFECT / 2);
+      document.getElementById(`${key}-slider`).value = layers[key].value;
+      document.getElementById(`${key}-value`).textContent = layers[key].value.toFixed(1);
+    }
+
+    // --- ALERTA 3: Aceleração Preocupante ---
+    if(isAccelerating && !isImminent && current > 30){
+       const msg = document.createElement('div');
+      msg.className="p-3 mb-2 bg-yellow-200 border border-yellow-400 text-yellow-800 rounded-lg flex items-center";
+      msg.innerHTML=`<span class="text-xl mr-3">📈</span> **Aceleração Detectada:** ${LABELS[key]} está acelerando (+${acceleration.toFixed(2)}). Monitoramento elevado.`;
+      alertDiv.appendChild(msg);
+      activeAlerts = true;
+    }
+
+    // --- INFORMAÇÃO: Feedback de Crosstalk ---
+    const crosstalkSource = Object.keys(CROSSTALK_MATRIX).find(source => CROSSTALK_MATRIX[source][key] && layers[source].value > 50);
+    if(crosstalkSource){
+        const msg = document.createElement('div');
+        msg.className="p-3 mb-2 bg-blue-100 border border-blue-300 text-blue-800 rounded-lg text-sm";
+        msg.innerHTML=`<span class="font-semibold">🔗 Crosstalk Ativo:</span> O risco em ${LABELS[key]} está sendo ativamente influenciado pelo alto nível de ${LABELS[crosstalkSource]}.`;
+        alertDiv.appendChild(msg);
+        activeAlerts = true;
+    }
+
+  });
+
+  if (!activeAlerts) {
+    alertDiv.innerHTML = '<p class="text-green-700 font-semibold flex items-center"><span class="text-2xl mr-3">✅</span> Status Operacional: Nenhuma anomalia preditiva de Velocidade/Aceleração detectada. Homeostase mantida.</p>';
+  }
+  
+  return predictiveMetrics;
+}
+
+// --- Chart.js ---
+
+function initChart(){
+  const ctx = document.getElementById('historicoChart').getContext('2d');
+  historicoChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: Array(HISTORY_LENGTH).fill(''),
+      datasets: Object.keys(layers).map((key, index) => ({
+        label: LABELS[key],
+        data: layers[key].history,
+        borderColor: KEY_COLORS[key],
+        backgroundColor: 'rgba(0,0,0,0.05)',
+        tension: 0.4,
+        borderWidth: 3,
+        pointRadius: 3,
+        fill: false,
+      }))
+    },
+    options:{
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 0 }, 
+      scales:{
+        y:{ min: 0, max: 100, title: { display: true, text: 'Nível de Risco' } },
+        x:{ title: { display: true, text: 'Tempo (Intervalos de 3s)' } }
+      },
+      plugins: {
+        legend: { position: 'top' },
+        tooltip: { mode: 'index', intersect: false }
+      }
+    }
+  });
+}
+
+function updateChart(){
+  historicoChart.data.datasets.forEach((dataset, index) => {
+    const key = Object.keys(layers)[index];
+    dataset.data = layers[key].history;
+  });
+  historicoChart.update();
+}
+
+// --- Funções Auxiliares ---
+
+function togglePanel(panelId){
+  const panels = ['especialista','paciente'];
+  panels.forEach(p => {
+    const element = document.getElementById(p);
+    // Fecha todos os outros painéis
+    if (p !== panelId) {
+      element.classList.add('hidden');
+    }
+  });
+  // Abre/fecha o painel selecionado
+  document.getElementById(panelId).classList.toggle('hidden');
+}
+
+function adicionarParametro() {
+    const input = document.getElementById('novoParametro');
+    const nome = input.value.trim();
+    if (nome && !parametrosExtras.includes(nome)) {
+        parametrosExtras.push(nome);
+        input.value = '';
+        atualizarListaParametros();
+    }
+}
+
+function atualizarListaParametros() {
+    const list = document.getElementById('parametrosList');
+    list.innerHTML = '';
+    parametrosExtras.forEach(param => {
+        const li = document.createElement('li');
+        li.className = 'flex justify-between items-center bg-gray-100 p-2 rounded-lg';
+        li.innerHTML = `
+            <span>${param}</span>
+            <button onclick="removerParametro('${param}')" class="text-red-500 hover:text-red-700 text-sm font-bold ml-2">Remover</button>
+        `;
+        list.appendChild(li);
+    });
+}
+
+function removerParametro(param) {
+    parametrosExtras = parametrosExtras.filter(p => p !== param);
+    atualizarListaParametros();
+}
+
+
+function updateResumoPaciente(){
+  const container = document.getElementById('resumoPaciente');
+  container.innerHTML='';
+
+  Object.keys(layers).forEach(key=>{
+    const value = layers[key].value;
+    let status, color;
+
+    if (value > 70) {
+      status = 'Elevado - Requer Atenção';
+      color = 'bg-risk-high text-white';
+    } else if (value > 40) {
+      status = 'Moderado - Monitoramento Ativo';
+      color = 'bg-risk-medium text-gray-900';
+    } else {
+      status = 'Baixo - Status Ótimo';
+      color = 'bg-risk-low text-white';
+    }
+
+    const div = document.createElement('div');
+    div.className=`${color} p-4 rounded-xl shadow-md`;
+    div.innerHTML=`
+        <p class="font-bold text-lg">${LABELS[key]}</p>
+        <p class="text-sm">Nível: <span class="font-extrabold">${value.toFixed(1)}</span></p>
+        <p class="text-xs italic mt-1">${status}</p>
+    `;
+    container.appendChild(div);
+  });
+}
+
+function exportCSV(){
+  if (!currentPatientId) {
+     showModal('Erro de Exportação', 'Por favor, inicie ou carregue uma análise do paciente para exportar dados.', 'text-red-600');
+     return;
+  }
+  let csv = `ID do Paciente: ${currentPatientId}\nCamada,Valores_Historico\n`;
+  Object.keys(layers).forEach(key => {
+    csv += `"${LABELS[key]}","${layers[key].history.join(',')}"\n`;
+  });
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.setAttribute('hidden', '');
+  a.setAttribute('href', url);
+  a.setAttribute('download', `CardioRegulCTX_Historico_${currentPatientId}.csv`);
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  showModal('Exportação CSV', `O histórico de dados para ${currentPatientId} foi exportado com sucesso.`);
+}
+
+function exportPDF(){
+  if (!currentPatientId) {
+     showModal('Erro de Exportação', 'Por favor, inicie ou carregue uma análise do paciente para exportar um relatório.', 'text-red-600');
+     return;
+  }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  let y = 20;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(20);
+  doc.text("CardioRegulCTX™ - Relatório IA BioAICTX", 10, y);
+  y += 10;
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Data e Hora do Relatório: ${new Date().toLocaleString()}`, 10, y);
+  doc.text(`ID do Paciente: ${currentPatientId || 'N/A'}`, 10, y + 5);
+  y += 15;
+  doc.setLineWidth(0.5);
+  doc.line(10, y, 200, y); 
+  y += 5;
+
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.text("Resumo e Histórico das Camadas de Risco:", 10, y);
+  y += 7;
+
+  Object.keys(layers).forEach(key => {
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${LABELS[key]} (Risco Atual: ${layers[key].value.toFixed(1)}):`, 10, y);
+    y += 5;
+
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    const historyText = layers[key].history.join(', ');
+    const splitText = doc.splitTextToSize(`Histórico (Últimos ${HISTORY_LENGTH} pontos): [${historyText}]`, 180);
+    doc.text(splitText, 15, y);
+    y += splitText.length * 4.5 + 5; 
+
+    if (y > 270) {
+      doc.addPage();
+      y = 20;
+    }
+  });
+
+  doc.save(`CardioRegulCTX_Relatorio_IA_${currentPatientId}.pdf`);
+  showModal('Exportação PDF', 'O relatório detalhado foi exportado com sucesso.');
+}
+
+
+function initDashboard() {
+  // 1. Cria os sliders de risco manual (necessários mesmo quando escondidos para a IA)
+  Object.keys(layers).forEach((key) => {
+    createLayerSlider(key, LABELS[key], KEY_COLORS[key]);
+  });
+
+  // 2. Inicializa o gráfico
+  initChart();
+  updateResumoPaciente();
+}
+
+document.addEventListener('DOMContentLoaded', initDashboard);
+
+</script>
+</body>
+</html>
